@@ -1,12 +1,13 @@
 "use client";
 import React, { useState, useRef } from 'react';
-
+import JSZip from 'jszip'
 export default function TangerineTTS() {
   // --- STATE: This holds all "tuning" data ---
   const [loading, setLoading] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [genTime, setGenTime] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const [audioList, setAudioList] = useState<{url: string, blob: Blob, text: string}[]>([]);
 
   const [formData, setFormData] = useState({
     voice: 'sage',
@@ -20,28 +21,56 @@ export default function TangerineTTS() {
   const handleGenerate = async () => {
     setLoading(true);
     setAudioUrl(null); // Clear old audio
+    setAudioList([]);
+    // 2. Split input by newline and remove empty lines
+    const lines = formData.input.split('\n').filter(line => line.trim() !== "");
+    const newAudioList = [];
+
     try {
-      const response = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
+      for (const [index, line] of lines.entries()) {
+        const response = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...formData, input: line }), // Send one line at a time
+        });
 
-      if (!response.ok) throw new Error("Generation failed");
+        if (!response.ok) throw new Error(`Failed on line ${index + 1}`);
 
-      // Get the speed (ms) from the header created in Step 6
-      const time = response.headers.get('X-Response-Time');
-      setGenTime(time);
-
-      // Convert the response to an audio link
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      setAudioUrl(url);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        newAudioList.push({ url, blob, text: line });
+      }
+      setAudioList(newAudioList);
     } catch (err) {
-      alert("Error: Make sure your API key is correct in .env.local");
+      alert("Error during batch generation. Check console.");
     } finally {
       setLoading(false);
     }
+  };
+
+  const playAll = async () => {
+    for (let i = 0; i < audioList.length; i++) {
+      const audio = new Audio(audioList[i].url);
+      await new Promise((resolve) => {
+        audio.onended = resolve;
+        audio.play();
+      });
+    }
+  };
+
+  const downloadZip = async () => {
+    const zip = new JSZip();
+    audioList.forEach((item, index) => {
+      // Files named: 01_text_snippet.mp3
+      const fileName = `${String(index + 1).padStart(2, '0')}_audio.${formData.format}`;
+      zip.file(fileName, item.blob);
+    });
+
+    const content = await zip.generateAsync({ type: "blob" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(content);
+    link.download = "tangerine_batch_audio.zip";
+    link.click();
   };
 
   return (
@@ -71,7 +100,7 @@ export default function TangerineTTS() {
                 TANGERINE<span className="text-orange-200">LAB</span>
               </h1>
               <div className="flex items-center gap-2 mt-1">
-                <span className="h-[1px] w-4 bg-orange-300"></span>
+                <span className="h-1 w-4 bg-orange-300"></span>
                 <p className="text-orange-100 text-[9px] font-bold uppercase tracking-[0.2em]">
                   GPT-4o Audio Tuning
                 </p>
@@ -178,23 +207,25 @@ export default function TangerineTTS() {
           </div>
 
           {/* 7. PLAY & DOWNLOAD BUTTONS */}
-          {audioUrl && (
-            <div className="mt-6 p-4 bg-orange-50 rounded-2xl border border-orange-100 flex flex-col gap-4">
-              <audio ref={audioRef} src={audioUrl} controls className="w-full" />
+          {audioList.length > 0 && (
+            <div className="mt-8 space-y-4">
               <div className="flex gap-2">
-                <button 
-                  onClick={() => audioRef.current?.play()}
-                  className="flex-1 bg-white border border-orange-500 text-orange-600 font-bold py-2 rounded-lg hover:bg-orange-100"
-                >
-                  Play
+                <button onClick={playAll} className="flex-1 bg-green-500 text-white font-bold py-3 rounded-xl hover:bg-green-600">
+                  ▶ Play All (Continuous)
                 </button>
-                <a 
-                  href={audioUrl} 
-                  download={`tangerine-audio.${formData.format}`}
-                  className="flex-1 bg-orange-600 text-white font-bold py-2 rounded-lg text-center hover:bg-orange-700"
-                >
-                  Download
-                </a>
+                <button onClick={downloadZip} className="flex-1 bg-blue-500 text-white font-bold py-3 rounded-xl hover:bg-blue-600">
+                  Download ZIP
+                </button>
+              </div>
+
+              {/* Display each generated line */}
+              <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                {audioList.map((item, idx) => (
+                  <div key={idx} className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between">
+                    <span className="text-xs text-slate-500 truncate max-w-200">{item.text}</span>
+                    <audio src={item.url} controls className="h-8 w-40" />
+                  </div>
+                ))}
               </div>
             </div>
           )}

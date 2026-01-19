@@ -1,14 +1,14 @@
 import { OpenAI } from "openai";
 import { NextResponse } from "next/server";
 
-// This initializes the OpenAI connection using your secret key
+// This initializes the OpenAI connection the your secret key
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
 export async function POST(req: Request) {
   try {
-    // 1. Extract 'input' (matching the key your frontend sends in 'formData')
+    // 1. Extract 'input' (matching the key the frontend sends in 'formData')
     const { input, voice, instructions, speed, format } = await req.json();
 
     // 2. Safety check: If for some reason 'input' is missing
