@@ -49,11 +49,43 @@ export default function TangerineTTS() {
   };
 
   const playAll = async () => {
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    
+    // Create a master chain
+    const compressor = audioCtx.createDynamicsCompressor();
+    compressor.threshold.setValueAtTime(-24, audioCtx.currentTime);
+    compressor.ratio.setValueAtTime(12, audioCtx.currentTime);
+    compressor.connect(audioCtx.destination);
+
     for (let i = 0; i < audioList.length; i++) {
-      const audio = new Audio(audioList[i].url);
+      const response = await fetch(audioList[i].url);
+      const arrayBuffer = await response.arrayBuffer();
+      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+      // --- NEW: LOUDNESS BALANCING ---
+      const channelData = audioBuffer.getChannelData(0);
+      let sumSquares = 0;
+      for (let j = 0; j < channelData.length; j++) {
+        sumSquares += channelData[j] * channelData[j];
+      }
+      const rms = Math.sqrt(sumSquares / channelData.length);
+      const targetRms = 0.15; // The "Golden" average loudness
+      const normalizationGain = targetRms / (rms + 0.00001); // Prevent divide by zero
+
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+
+      // Individual gain node for THIS specific clip
+      const individualGain = audioCtx.createGain();
+      individualGain.gain.setValueAtTime(normalizationGain, audioCtx.currentTime);
+
+      // Source -> Individual Gain (Normalizer) -> Master Compressor -> Speakers
+      source.connect(individualGain);
+      individualGain.connect(compressor);
+
       await new Promise((resolve) => {
-        audio.onended = resolve;
-        audio.play();
+        source.onended = resolve;
+        source.start(0);
       });
     }
   };
@@ -130,7 +162,7 @@ export default function TangerineTTS() {
                 <option value="sage">Sage (Female)</option>
                 <option value="shimmer">Shimmer (Female)</option>
                 <option value="ash">Ash</option>
-                <option value="balled">Ballad</option>
+                <option value="ballad">Ballad</option>
                 <option value="coral">Coral</option>
                 <option value="echo">Echo</option>
                 <option value="fable">Fable</option>
